@@ -155,7 +155,8 @@ class RelationCompleter:
         
         # Find paths of length 2 (A -> B -> C)
         for node in graph.nodes():
-            for path in nx.single_source_shortest_path(graph, node, cutoff=max_length):
+            paths = nx.single_source_shortest_path(graph, node, cutoff=max_length)
+            for target_node, path in paths.items():
                 if len(path) == 3:  # Path length 2
                     source, intermediate, target = path
                     
