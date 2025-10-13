@@ -6,6 +6,7 @@ Shows the complete healing pipeline with sample data and evaluation.
 import argparse
 import sys
 from typing import List, Dict
+import json
 
 from data_loader import DocREDLoader
 from entity_resolution import EntityResolver
@@ -13,6 +14,13 @@ from relation_completion import RelationCompleter
 from kg_healer import KGHealer
 from evaluation import KGHealingEvaluator, BenchmarkRunner
 from utils import create_sample_document, compute_document_statistics
+
+# Import new entity resolution approaches
+from string_similarity_resolver import StringSimilarityResolver
+from rule_based_resolver import RuleBasedResolver
+from graph_embedding_resolver import GraphEmbeddingResolver
+from rl_kg_healer import RLKnowledgeGraphHealer
+from comprehensive_evaluation import EntityResolutionEvaluator
 
 
 def create_demo_dataset() -> List[Dict]:
@@ -195,6 +203,68 @@ def run_component_demo():
         print(f"  {key}: {value}")
 
 
+def run_entity_resolution_comparison():
+    """Compare different entity resolution approaches."""
+    print("=" * 60)
+    print("ENTITY RESOLUTION COMPARISON")
+    print("=" * 60)
+    
+    # Run the comprehensive evaluation
+    evaluator = EntityResolutionEvaluator()
+    results = evaluator.run_comprehensive_evaluation()
+    
+    print("\n✅ Entity resolution comparison completed!")
+    print(f"Best approach: {results['best_approach']['name']} (F1: {results['best_approach']['f1_score']:.3f})")
+    
+    return results
+
+
+def run_single_approach(approach_name: str):
+    """Run a single entity resolution approach."""
+    print(f"Running {approach_name} approach...")
+    
+    # Create test documents
+    docs = create_demo_dataset()
+    
+    # Initialize the specified approach
+    approaches = {
+        'string_similarity': StringSimilarityResolver(threshold=0.7),
+        'rule_based': RuleBasedResolver(),
+        'graph_embedding': GraphEmbeddingResolver(embedding_dim=64),
+        'rl_based': RLKnowledgeGraphHealer(),
+        'original': EntityResolver()
+    }
+    
+    if approach_name not in approaches:
+        print(f"Unknown approach: {approach_name}")
+        print(f"Available approaches: {list(approaches.keys())}")
+        return None
+    
+    resolver = approaches[approach_name]
+    
+    # Apply entity resolution
+    if hasattr(resolver, 'find_duplicate_entities'):
+        # New interface (approaches have find_duplicate_entities method)
+        results = resolver.find_duplicate_entities(docs)
+        print(f"Found {len(results.get('duplicates', []))} duplicate pairs")
+        
+        # Show some examples
+        for i, dup in enumerate(results.get('duplicates', [])[:3]):
+            entity1 = dup['entity1']['name']
+            entity2 = dup['entity2']['name']
+            confidence = dup.get('confidence', dup.get('rl_confidence', 'N/A'))
+            print(f"  {i+1}. {entity1} <-> {entity2} (confidence: {confidence})")
+    else:
+        # Original interface
+        duplicates = resolver.find_duplicate_entities(docs)
+        print(f"Found {len(duplicates)} potential duplicate surface forms")
+        
+        for surface_form, mentions in list(duplicates.items())[:3]:
+            print(f"  '{surface_form}': {len(mentions)} mentions")
+    
+    return results if 'results' in locals() else duplicates
+
+
 def run_benchmark_demo():
     """Demonstrate benchmarking capabilities."""
     print("=" * 60)
@@ -265,15 +335,23 @@ Examples:
   python main.py --demo basic          # Run basic healing demo
   python main.py --demo components     # Show individual components  
   python main.py --demo benchmark      # Run benchmarking demo
+  python main.py --demo comparison     # Compare entity resolution approaches
+  python main.py --approach rule_based # Run specific approach
   python main.py --demo all           # Run all demonstrations
         """
     )
     
     parser.add_argument(
         '--demo',
-        choices=['basic', 'components', 'benchmark', 'all'],
+        choices=['basic', 'components', 'benchmark', 'comparison', 'all'],
         default='basic',
         help='Type of demonstration to run'
+    )
+    
+    parser.add_argument(
+        '--approach',
+        choices=['string_similarity', 'rule_based', 'graph_embedding', 'rl_based', 'original'],
+        help='Run a specific entity resolution approach'
     )
     
     parser.add_argument(
@@ -302,11 +380,22 @@ Examples:
                     yield
     
     try:
+        # Handle specific approach request
+        if args.approach:
+            print(f"Running {args.approach} approach...")
+            results = run_single_approach(args.approach)
+            
+            if args.output:
+                with open(args.output, 'w') as f:
+                    json.dump(results, f, indent=2, default=str)
+                print(f"\nResults saved to {args.output}")
+        
+        # Handle demo types
         if args.demo in ['basic', 'all']:
             print("Running basic demonstration...")
             healed_docs, stats = run_basic_demo()
             
-            if args.output:
+            if args.output and not args.approach:
                 from utils import save_json_file
                 save_json_file({
                     'healed_documents': healed_docs,
@@ -321,6 +410,15 @@ Examples:
         if args.demo in ['benchmark', 'all']:
             print("\nRunning benchmark demonstration...")
             run_benchmark_demo()
+        
+        if args.demo in ['comparison', 'all']:
+            print("\nRunning entity resolution comparison...")
+            comparison_results = run_entity_resolution_comparison()
+            
+            if args.output and not args.approach:
+                with open(args.output.replace('.json', '_comparison.json'), 'w') as f:
+                    json.dump(comparison_results, f, indent=2, default=str)
+                print(f"\nComparison results saved to {args.output.replace('.json', '_comparison.json')}")
         
         print("\nDemonstration completed successfully!")
         
