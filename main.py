@@ -11,7 +11,8 @@ from experiment import run_once_and_save
 from healing_metrics import compute_semantic_gain, compute_action_efficiency
 from error_correction import compute_error_correction_metrics
 from schema_validation import schema_report
-from config import ROTATE_NPY, GOLD
+from config import ROTATE_NPY
+from error_correction import GOLD
 
 def run_complete_pipeline(n_docs=25, split="dev", 
                          merge_thr=0.92, refine_margin=0.15, topk=50,
