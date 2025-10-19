@@ -2,10 +2,15 @@
 """
 Main runner script for KG Healing pipeline
 Orchestrates all layers and generates comprehensive summary
+
+Now supports both:
+1. Traditional evaluation-only pipeline (backward compatible)
+2. Complete thesis pipeline with ML training + evaluation
 """
 
 import json
 import os
+import argparse
 import pandas as pd
 from experiment import run_once_and_save
 from healing_metrics import compute_semantic_gain, compute_action_efficiency
@@ -154,17 +159,94 @@ def generate_summary(exp_dir, scg_df=None, eff_df=None, error_results=None, sche
     print("Wrote:", os.path.join(exp_dir,"summary_snapshot.json"))
     return summary
 
-if __name__ == "__main__":
-    # Run with default parameters
-    exp_dir, summary = run_complete_pipeline()
+def run_thesis_mode(args):
+    """
+    Run complete thesis pipeline: EDA -> Embeddings -> Training -> RL -> Evaluation
+    """
+    try:
+        from run_thesis_pipeline import run_thesis_pipeline, ThesisPipelineConfig
+    except ImportError:
+        print("Error: Thesis components not available. Install required dependencies.")
+        return None, None
     
-    # Print key results
-    print("\nKEY RESULTS:")
-    print("-" * 40)
-    if "structural" in summary and "docs" in summary["structural"]:
-        print(f"Documents processed: {summary['structural']['docs']}")
-    if summary.get("semantic_gain_mean"):
-        print(f"Mean semantic gain: {summary['semantic_gain_mean']:.4f}")
-    if summary.get("avg_actions_per_doc"):
-        print(f"Avg actions per doc: {summary['avg_actions_per_doc']:.2f}")
-    print(f"Full results: {exp_dir}")
+    # Create config from args
+    config = ThesisPipelineConfig()
+    config.data_dir = args.data_dir
+    config.max_docs_train = args.max_docs_train
+    config.eval_n_docs = args.n_docs
+    config.eval_split = args.split
+    
+    # Stage control from args
+    if hasattr(args, 'skip_eda') and args.skip_eda:
+        config.run_eda = False
+    if hasattr(args, 'skip_training') and args.skip_training:
+        config.run_entity_embeddings = False
+        config.run_rotate_training = False
+        config.run_rgcn_training = False
+        config.run_rl_training = False
+    
+    return run_thesis_pipeline(config)
+
+def run_evaluation_only_mode(args):
+    """
+    Run traditional evaluation-only pipeline (backward compatible)
+    """
+    return run_complete_pipeline(
+        n_docs=args.n_docs,
+        split=args.split,
+        merge_thr=getattr(args, 'merge_thr', 0.92),
+        refine_margin=getattr(args, 'refine_margin', 0.15),
+        topk=getattr(args, 'topk', 50),
+        with_ablation=getattr(args, 'with_ablation', False)
+    )
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="KG Healing Pipeline")
+    parser.add_argument("--mode", choices=["evaluation", "thesis"], default="evaluation",
+                        help="Pipeline mode: evaluation-only or complete thesis workflow")
+    
+    # Common parameters
+    parser.add_argument("--n_docs", type=int, default=25, help="Number of documents to process")
+    parser.add_argument("--split", default="dev", help="Data split to use")
+    parser.add_argument("--data_dir", default="data", help="Data directory")
+    
+    # Evaluation-only parameters
+    parser.add_argument("--merge_thr", type=float, default=0.92, help="Merge threshold")
+    parser.add_argument("--refine_margin", type=float, default=0.15, help="Refine margin")
+    parser.add_argument("--topk", type=int, default=50, help="Top-k candidates")
+    parser.add_argument("--with_ablation", action="store_true", help="Run RotatE ablation")
+    
+    # Thesis pipeline parameters
+    parser.add_argument("--max_docs_train", type=int, default=500, help="Max docs for training")
+    parser.add_argument("--skip_eda", action="store_true", help="Skip EDA stage")
+    parser.add_argument("--skip_training", action="store_true", help="Skip all training stages")
+    parser.add_argument("--quick", action="store_true", help="Quick mode with reduced params")
+    
+    args = parser.parse_args()
+    
+    print(f"Running KG Healing Pipeline in {args.mode.upper()} mode")
+    print("=" * 60)
+    
+    if args.mode == "thesis":
+        exp_dir, results = run_thesis_mode(args)
+    else:
+        exp_dir, results = run_evaluation_only_mode(args)
+    
+    # Print results
+    if exp_dir and results:
+        print("\nPIPELINE COMPLETED")
+        print("-" * 40)
+        if args.mode == "thesis":
+            print(f"Thesis pipeline results: {exp_dir}")
+        else:
+            # Traditional results display
+            summary = results if isinstance(results, dict) else {}
+            if "structural" in summary and "docs" in summary["structural"]:
+                print(f"Documents processed: {summary['structural']['docs']}")
+            if summary.get("semantic_gain_mean"):
+                print(f"Mean semantic gain: {summary['semantic_gain_mean']:.4f}")
+            if summary.get("avg_actions_per_doc"):
+                print(f"Avg actions per doc: {summary['avg_actions_per_doc']:.2f}")
+            print(f"Evaluation results: {exp_dir}")
+    else:
+        print("Pipeline failed or was interrupted")

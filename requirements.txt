@@ -8,10 +8,19 @@ scipy>=1.7.0
 # Data processing
 tqdm>=4.62.0
 jsonlines>=2.0.0
+nltk>=3.6.0
 
-# Optional ML dependencies
+# ML dependencies for thesis
 torch>=1.9.0
 transformers>=4.12.0
+torch-geometric>=2.0.0
+torch-scatter
+torch-sparse
+torch-cluster
+torch-spline-conv
+pykeen>=1.7.0
+gymnasium>=0.26.0
+stable-baselines3>=1.6.0
 
 # Development and testing
 pytest>=6.2.0
